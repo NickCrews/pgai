@@ -63,7 +63,18 @@ class LiteLLM(ApiKeyMixin, BaseModel, Embedder):
         import litellm
 
         if result := os.getenv("PGAI_MAX_CHUNKS_PER_BATCH"):
-            return int(result)
+            try:
+                max_chunks = int(result)
+                if max_chunks <= 0:
+                    logger.warn(
+                        f"PGAI_MAX_CHUNKS_PER_BATCH must be positive, got {max_chunks}. Falling back to provider defaults."
+                    )
+                else:
+                    return max_chunks
+            except ValueError:
+                logger.warn(
+                    f"PGAI_MAX_CHUNKS_PER_BATCH must be a valid integer, got '{result}'. Falling back to provider defaults."
+                )
 
         _, custom_llm_provider, _, _ = litellm.get_llm_provider(self.model)  # type: ignore
         match custom_llm_provider:
