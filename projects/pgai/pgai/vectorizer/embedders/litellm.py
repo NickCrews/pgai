@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator, Callable
+import os
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -61,6 +62,20 @@ class LiteLLM(ApiKeyMixin, BaseModel, Embedder):
         # Note: deferred import to avoid import overhead
         import litellm
 
+        if result := os.getenv("PGAI_MAX_CHUNKS_PER_BATCH"):
+            try:
+                max_chunks = int(result)
+                if max_chunks <= 0:
+                    logger.warn(
+                        f"PGAI_MAX_CHUNKS_PER_BATCH must be positive, got {max_chunks}. Falling back to provider defaults."
+                    )
+                else:
+                    return max_chunks
+            except ValueError:
+                logger.warn(
+                    f"PGAI_MAX_CHUNKS_PER_BATCH must be a valid integer, got '{result}'. Falling back to provider defaults."
+                )
+
         _, custom_llm_provider, _, _ = litellm.get_llm_provider(self.model)  # type: ignore
         match custom_llm_provider:
             case "cohere":
@@ -71,6 +86,8 @@ class LiteLLM(ApiKeyMixin, BaseModel, Embedder):
                 return 2048  # https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/embeddings?tabs=console#verify-inputs-dont-exceed-the-maximum-length
             case "bedrock":
                 return 96  # NOTE: currently (Jan 2025) Bedrock only supports embeddings with Cohere or Titan models. The Titan API only processes one input per request, which LiteLLM already handles under the hood. We assume that the Cohere API has the same input limits as above.
+            case "gemini":
+                return 250  # https://docs.cloud.google.com/vertex-ai/docs/quotas#text-embedding-limits
             case "huggingface":
                 return 2048  # NOTE: There is not documented limit. In testing we got a response for a request with 10k (short) inputs.
             case "mistral":
@@ -80,10 +97,11 @@ class LiteLLM(ApiKeyMixin, BaseModel, Embedder):
             case "voyage":
                 return 128  # see https://docs.voyageai.com/reference/embeddings-api
             case _:
+                fallback = 5
                 logger.warn(
-                    f"unknown provider '{custom_llm_provider}', falling back to conservative max chunks per batch"
+                    f"unknown provider '{custom_llm_provider}', falling back to {fallback} max chunks per batch"
                 )
-                return 5
+                return fallback
 
     @override
     def _max_tokens_per_batch(self) -> int | None:
